@@ -5,18 +5,33 @@ import { analyzeGaps, computeReadiness } from '@/lib/skill-engine';
 import { z } from 'zod';
 
 const OnboardingSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
+  name: z.string().min(1, 'Name is required').transform((s) => s.trim()),
+  email: z
+    .string()
+    .min(1, 'Email is required')
+    .transform((s) => {
+      const trimmed = s.trim();
+      // Extract email token if user pasted a full line with phone or pipes
+      const match = trimmed.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      if (match) return match[0];
+      return trimmed.includes('@') ? trimmed : `${trimmed.replace(/[^a-zA-Z0-9]/g, '') || 'user'}@skillflow.dev`;
+    }),
   bio: z.string().optional().default(''),
-  skills: z.array(z.object({
-    name: z.string(),
-    level: z.number().min(0).max(5),
-  })),
-  targetRoleId: z.string().min(1),
-  hoursPerWeek: z.number().min(1).max(40).optional().default(10),
+  skills: z
+    .array(
+      z.object({
+        name: z.string(),
+        level: z.coerce.number().min(0).max(5).default(2),
+      })
+    )
+    .optional()
+    .default([]),
+  targetRoleId: z.string().min(1, 'Please select a target role'),
+  hoursPerWeek: z.coerce.number().min(1).max(168).optional().default(10),
   learningStyle: z.string().optional().default('balanced'),
   resumeText: z.string().optional().default(''),
   projects: z.string().optional().default(''),
+  githubUrl: z.string().optional().default(''),
 });
 
 export async function POST(req: NextRequest) {
@@ -30,6 +45,7 @@ export async function POST(req: NextRequest) {
       update: {
         name: input.name,
         bio: input.bio,
+        githubUrl: input.githubUrl || undefined,
         resumeText: input.resumeText,
         availableHoursPerWeek: input.hoursPerWeek,
         learningStyle: input.learningStyle,
@@ -38,6 +54,7 @@ export async function POST(req: NextRequest) {
         email: input.email,
         name: input.name,
         bio: input.bio,
+        githubUrl: input.githubUrl || '',
         resumeText: input.resumeText,
         availableHoursPerWeek: input.hoursPerWeek,
         learningStyle: input.learningStyle,
@@ -253,8 +270,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('Onboarding error:', error);
     if (error instanceof z.ZodError) {
+      const fieldErrors = error.errors.map((e) => `${e.path.join('.') || 'input'}: ${e.message}`).join(', ');
       return NextResponse.json(
-        { error: 'Invalid input', details: error.errors },
+        { error: `Invalid input: ${fieldErrors}`, details: error.errors },
         { status: 400 }
       );
     }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   GitBranch,
@@ -19,6 +20,8 @@ import {
   Briefcase,
   Layers,
   ChevronDown,
+  Loader2,
+  X,
 } from 'lucide-react';
 import { SkillGraphVisualizer } from '@/components/SkillGraphVisualizer';
 import type { SkillNode } from '@/types';
@@ -112,13 +115,9 @@ interface RoleOption {
   description: string;
 }
 
-export default function DashboardPage({
-  params,
-}: {
-  params: Promise<{ userId: string }>;
-}) {
-  const unwrappedParams = use(params);
-  const userId = unwrappedParams.userId;
+export default function DashboardPage() {
+  const params = useParams();
+  const userId = (params?.userId as string) || 'demo';
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [roles, setRoles] = useState<RoleOption[]>([]);
@@ -126,8 +125,54 @@ export default function DashboardPage({
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
   const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'roadmap' | 'gaps' | 'graph'>('roadmap');
+
+  // GitHub sync modal state
+  const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const [githubSyncUsername, setGithubSyncUsername] = useState('');
+  const [isSyncingGithub, setIsSyncingGithub] = useState(false);
+  const [githubSyncMessage, setGithubSyncMessage] = useState<string | null>(null);
+
+  const handleSyncGithub = async () => {
+    if (!githubSyncUsername.trim()) return;
+    setIsSyncingGithub(true);
+    setGithubSyncMessage(null);
+
+    try {
+      const scanRes = await fetch('/api/github/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: githubSyncUsername.trim(),
+          userId,
+          autoSync: true,
+        }),
+      });
+
+      if (!scanRes.ok) {
+        const err = await scanRes.json();
+        throw new Error(err.error || 'Failed to sync with GitHub');
+      }
+
+      const scanData = await scanRes.json();
+
+      await fetch('/api/roadmap/recalculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+
+      await fetchData();
+
+      setGithubSyncMessage(
+        `Successfully synced ${scanData.detectedSkills.length} skills from @${scanData.username} (${scanData.publicReposCount} repositories)! Your roadmap and readiness have been updated.`
+      );
+    } catch (err: any) {
+      alert(err.message || 'Error syncing GitHub');
+    } finally {
+      setIsSyncingGithub(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -278,6 +323,18 @@ export default function DashboardPage({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setGithubSyncUsername(
+                  data?.user?.email?.split('@')[0] || ''
+                );
+                setGithubModalOpen(true);
+              }}
+              className="text-xs px-3 py-1.5 rounded-md border border-border bg-card hover:bg-accent transition-colors flex items-center gap-1.5"
+            >
+              <FolderGit2 className="w-3.5 h-3.5 text-primary" />
+              Sync GitHub
+            </button>
             <button
               onClick={handleRecalculate}
               disabled={isRecalculating}
@@ -668,6 +725,90 @@ export default function DashboardPage({
           </div>
         )}
       </main>
+
+      {/* GitHub Sync Modal */}
+      {githubModalOpen && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-card border border-border rounded-2xl p-6 shadow-xl space-y-4 animate-fade-in relative">
+            <button
+              onClick={() => {
+                setGithubModalOpen(false);
+                setGithubSyncMessage(null);
+              }}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                <FolderGit2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base">Sync Skills from GitHub</h3>
+                <p className="text-xs text-muted-foreground">Scan repositories to update your skill profile</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              SkillFlow will inspect your public repositories, primary languages, and framework tags, infer your demonstrated skills, and recalculate your role readiness score automatically.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  GitHub Profile / Username
+                </label>
+                <input
+                  type="text"
+                  value={githubSyncUsername}
+                  onChange={(e) => setGithubSyncUsername(e.target.value)}
+                  placeholder="e.g. torvalds or github.com/username"
+                  className="w-full px-3.5 py-2 text-sm rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              {githubSyncMessage && (
+                <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <span>{githubSyncMessage}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGithubModalOpen(false);
+                    setGithubSyncMessage(null);
+                  }}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncGithub}
+                  disabled={isSyncingGithub || !githubSyncUsername.trim()}
+                  className="px-4 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSyncingGithub ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Scanning & Recalculating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Scan & Sync Skills
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

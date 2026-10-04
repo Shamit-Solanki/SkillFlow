@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, GitBranch, Loader2, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, GitBranch, Loader2, Sparkles, X, FolderGit2, CheckCircle2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 type Step = 'profile' | 'skills' | 'role' | 'details' | 'analyzing';
@@ -31,6 +31,16 @@ export default function OnboardingPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [bio, setBio] = useState('');
+  const [githubInput, setGithubInput] = useState('');
+  const [isScanningGithub, setIsScanningGithub] = useState(false);
+  const [githubScanResult, setGithubScanResult] = useState<{
+    username: string;
+    avatarUrl: string;
+    reposCount: number;
+    skillsCount: number;
+    topLangs: string[];
+    summary: string;
+  } | null>(null);
 
   // Skills
   const [selectedSkills, setSelectedSkills] = useState<Map<string, number>>(new Map());
@@ -91,6 +101,51 @@ export default function OnboardingPage() {
     fetchRoles();
   };
 
+  const handleScanGithub = async () => {
+    if (!githubInput.trim()) return;
+    setIsScanningGithub(true);
+    setError('');
+
+    try {
+      const res = await fetch('/api/github/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: githubInput }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to scan GitHub profile');
+      }
+
+      const data = await res.json();
+
+      if (!name.trim() && data.name) setName(data.name);
+      if (!bio.trim() && data.bio) setBio(data.bio);
+
+      // Auto-populate detected skills
+      const nextSkills = new Map(selectedSkills);
+      data.detectedSkills.forEach((ds: { name: string; level: number }) => {
+        const current = nextSkills.get(ds.name) || 0;
+        nextSkills.set(ds.name, Math.max(current, ds.level));
+      });
+      setSelectedSkills(nextSkills);
+
+      setGithubScanResult({
+        username: data.username,
+        avatarUrl: data.avatarUrl,
+        reposCount: data.publicReposCount,
+        skillsCount: data.detectedSkills.length,
+        topLangs: data.topLanguages.slice(0, 3).map((l: any) => l.language),
+        summary: data.summary,
+      });
+    } catch (e: any) {
+      setError(e.message || 'Could not scan GitHub profile');
+    } finally {
+      setIsScanningGithub(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setStep('analyzing');
     setError('');
@@ -114,6 +169,7 @@ export default function OnboardingPage() {
           learningStyle,
           resumeText,
           projects,
+          githubUrl: githubInput.trim(),
         }),
       });
 
@@ -202,6 +258,77 @@ export default function OnboardingPage() {
                   className="w-full px-4 py-3 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                 />
               </div>
+
+              {/* GitHub Auto-Extract Card */}
+              <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FolderGit2 className="w-5 h-5 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">
+                      Extract Skills from GitHub (Optional)
+                    </span>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    Auto-Analysis
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  SkillFlow scans your public repositories, languages, and topics to automatically extract your skills and rate your baseline proficiency.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={githubInput}
+                    onChange={(e) => setGithubInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleScanGithub())}
+                    placeholder="github.com/yourusername or yourusername"
+                    className="flex-1 px-3 py-2 text-sm rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleScanGithub}
+                    disabled={isScanningGithub || !githubInput.trim()}
+                    className="px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {isScanningGithub ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Scanning...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Scan Profile
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {githubScanResult && (
+                  <div className="p-3 rounded-lg bg-background border border-border flex items-center justify-between gap-3 text-xs animate-fade-in">
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src={githubScanResult.avatarUrl}
+                        alt={githubScanResult.username}
+                        className="w-8 h-8 rounded-full border border-border"
+                      />
+                      <div>
+                        <div className="font-semibold text-foreground flex items-center gap-1.5">
+                          @{githubScanResult.username}
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {githubScanResult.reposCount} public repos • Top:{' '}
+                          {githubScanResult.topLangs.join(', ') || 'Code'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">
+                      +{githubScanResult.skillsCount} skills detected
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="mt-10 flex justify-end">
@@ -221,9 +348,21 @@ export default function OnboardingPage() {
         {step === 'skills' && (
           <div className="animate-fade-in">
             <h1 className="text-3xl font-bold mb-2">What do you know?</h1>
-            <p className="text-muted-foreground mb-8">
+            <p className="text-muted-foreground mb-6">
               Select your current skills and rate your proficiency. Don't worry about being perfect — AI will help refine this.
             </p>
+
+            {githubScanResult && (
+              <div className="mb-6 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between text-xs text-emerald-300 animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>
+                    Auto-selected <strong>{githubScanResult.skillsCount} skills</strong> inferred from your GitHub repositories (@{githubScanResult.username}).
+                  </span>
+                </div>
+                <span className="text-[10px] uppercase font-bold text-emerald-400">Synced</span>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
               {COMMON_SKILLS.map((skill) => (
