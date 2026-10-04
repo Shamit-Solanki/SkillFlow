@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  bio           String?  @default("")
+  githubUrl     String?  @default("")
+  linkedinUrl   String?  @default("")
+  resumeText    String?  @default("")
+  availableHoursPerWeek Int @default(10)
+  learningStyle String   @default("balanced")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userSkills    UserSkill[]
+  roadmaps      Roadmap[]
+}
+
+model Skill {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  normalizedName String  @unique
+  category      String   @default("general")
+  description   String?  @default("")
+  createdAt     DateTime @default(now())
+
+  prerequisites SkillPrerequisite[] @relation("skill")
+  dependents    SkillPrerequisite[] @relation("prerequisite")
+  roleSkills    RoleSkill[]
+  userSkills    UserSkill[]
+  roadmapItems  RoadmapItem[]
+}
+
+model SkillPrerequisite {
+  id              String @id @default(cuid())
+  skillId         String
+  prerequisiteId  String
+  strength        String @default("required")
+
+  skill           Skill  @relation("skill", fields: [skillId], references: [id], onDelete: Cascade)
+  prerequisite    Skill  @relation("prerequisite", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@unique([skillId, prerequisiteId])
+}
+
+model TargetRole {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?  @default("")
+  category    String   @default("engineering")
+  createdAt   DateTime @default(now())
+
+  roleSkills  RoleSkill[]
+  roadmaps    Roadmap[]
+}
+
+model RoleSkill {
+  id            String @id @default(cuid())
+  roleId        String
+  skillId       String
+  importance    String @default("required")
+  minimumLevel  Int    @default(3)
+
+  role          TargetRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  skill         Skill      @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, skillId])
+}
+
+model UserSkill {
+  id        String   @id @default(cuid())
+  userId    String
+  skillId   String
+  level     Int      @default(0)
+  source    String   @default("self-reported")
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+}
+
+model Roadmap {
+  id            String   @id @default(cuid())
+  userId        String
+  targetRoleId  String
+  status        String   @default("active")
+  title         String   @default("")
+  summary       String?  @default("")
+  totalWeeks    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetRole    TargetRole @relation(fields: [targetRoleId], references: [id], onDelete: Cascade)
+  milestones    Milestone[]
+}
+
+model Milestone {
+  id          String   @id @default(cuid())
+  roadmapId   String
+  title       String
+  description String?  @default("")
+  order       Int      @default(0)
+  weekStart   Int      @default(0)
+  weekEnd     Int      @default(0)
+  status      String   @default("not_started")
+  createdAt   DateTime @default(now())
+
+  roadmap     Roadmap      @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  items       RoadmapItem[]
+}
+
+model RoadmapItem {
+  id            String   @id @default(cuid())
+  milestoneId   String
+  skillId       String
+  status        String   @default("not_started")
+  priority      String   @default("medium")
+  reason        String?  @default("")
+  projectTitle  String?  @default("")
+  projectDescription String? @default("")
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  milestone     Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  skill         Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade)
+}
